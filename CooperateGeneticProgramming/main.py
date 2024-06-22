@@ -123,29 +123,37 @@ class Table:
             self.cells[row][column] = TypeCells.GOAL1
         elif ind == 1:
             self.cells[row][column] = TypeCells.GOAL2
-        else:
+        elif ind == 2:
             self.cells[row][column] = TypeCells.GOAL3
 
     def isCollisionRobots(self, i, j):
         r1, r2 = self.robots[i], self.robots[j]
-        y1, x1 = r1.getPos()
-        y2, x2 = r2.getPos()
-        if x1 == x1 and y1 == y2:
+        row1, column1 = r1.getPos()
+        row2, column2 = r2.getPos()
+        if row1 == row2 and column1 == column2:
             return True
-        elif x1 == x2 and y1 - y2 == 1:
-            if r1.state == Robot.States.MOVE_UP and r2.state == Robot.States.MOVE_DOWN:
+        elif column1 == column2 and row1 - row2 == 1:
+            if r1.state == Robot.States.MOVED_DOWN and r2.state == Robot.States.MOVED_UP:
                 return True
-        elif x1 == x2 and y1 - y2 == -1:
-            if r1.state == Robot.States.MOVE_DOWN and r2.state == Robot.States.MOVE_UP:
+            else:
+                return False
+        elif column1 == column2 and row1 - row2 == -1:
+            if r1.state == Robot.States.MOVED_UP and r2.state == Robot.States.MOVED_DOWN:
                 return True
-        elif y1 == y2 and x1 - x2 == 1:
-            if r1.state == Robot.States.MOVE_LEFT and r2.state == Robot.States.MOVE_RIGHT:
+            else:
+                return False
+        elif row1 == row2 and column1 - column2 == 1:
+            if r1.state == Robot.States.MOVED_RIGHT and r2.state == Robot.States.MOVED_LEFT:
                 return True
-        elif y1 == y2 and x1 - x2 == -1:
-            if r1.state == Robot.States.MOVE_RIGHT and r2.state == Robot.States.MOVE_LEFT:
+            else:
+                return False
+        elif row1 == row2 and column1 - column2 == -1:
+            if r1.state == Robot.States.MOVED_LEFT and r2.state == Robot.States.MOVED_RIGHT:
                 return True
-
-        return False
+            else:
+                return False
+        else:
+            return False
 
     def isCollisionRobots3(self):
         return self.isCollisionRobots(0, 1) or self.isCollisionRobots(1, 2) or self.isCollisionRobots(0, 2)
@@ -168,6 +176,7 @@ class Table:
     def returnRobotsToStartPosition(self):
         for ind in range(3):
             self.robots[ind].setPos(*(self.startPositionRobots[ind]))
+            self.robots[ind].state = Robot.States.STAYED
 
     def isGoal(self, ind):
         rowR, colR = self.robots[ind].getPos()
@@ -205,20 +214,17 @@ class Robot:
         STAY = 0
 
     class States(enum.IntEnum):
-        MOVE_UP = 5
-        MOVE_DOWN = 4
-        MOVE_RIGHT = 3
-        MOVE_LEFT = 2
-        STAY = 1
-        AT_START = 0
-        REACHED_GOAL = 6
+        MOVED_UP = 5
+        MOVED_DOWN = 4
+        MOVED_RIGHT = 3
+        MOVED_LEFT = 2
+        STAYED = 1
 
     def __init__(self, row, column):
         self.row = row
         self.column = column
         # self.sensors = [[TypeCells.OBSTACLE for i in range(3)] for j in range(3)]
-        self.state = Robot.States.STAY
-        self.comand = Robot.Moving.STAY
+        self.state = Robot.States.STAYED
 
     def draw(self, screen, color=colors["red"]):
         x = self.column*50 + 26
@@ -230,16 +236,18 @@ class Robot:
         match comand:
             case Robot.Moving.UP:
                 self.row -= 1
-                self.state = Robot.States.MOVE_UP
+                self.state = Robot.States.MOVED_UP
             case Robot.Moving.DOWN:
                 self.row += 1
-                self.state = Robot.States.MOVE_DOWN
+                self.state = Robot.States.MOVED_DOWN
             case Robot.Moving.LEFT:
                 self.column -= 1
-                self.state = Robot.States.MOVE_LEFT
+                self.state = Robot.States.MOVED_LEFT
             case Robot.Moving.RIGHT:
                 self.column += 1
-                self.state = Robot.States.MOVE_RIGHT
+                self.state = Robot.States.MOVED_RIGHT
+            case Robot.Moving.STAY:
+                self.state = Robot.States.STAYED
 
 
     """def sense(self, table):
@@ -288,9 +296,9 @@ class GP:
 
     def crossover(self, individ1, individ2):
         l1 = random.randint(0, individ1.size-1)
-        r1 = random.randint(l1+1, individ1.size)
+        r1 = random.randint(l1+1, min(l1+5,individ1.size))
         l2 = random.randint(0, individ2.size-1)
-        r2 = random.randint(l2+1, individ2.size)
+        r2 = random.randint(l2+1, min(l2+5,individ2.size))
         n1 = individ1.prog[:l1] + individ2.prog[l2:r2] + individ1.prog[r1:]
         n2 = individ2.prog[:l2] + individ1.prog[l1:r1] + individ2.prog[r2:]
         size = self.maxSizeIndivid
@@ -313,7 +321,7 @@ class GP:
               Robot.Moving.LEFT,
               Robot.Moving.DOWN,
               Robot.Moving.RIGHT]
-        Ncomand = random.randint(1, individ.size)
+        Ncomand = random.randint(1, 5)
         for i in range(Ncomand):
             numberComand = random.randint(0, individ.size - 1)
             numberRobot = random.randint(0, 2)
@@ -331,7 +339,7 @@ class GP:
         self.minFitnessPopulation = 10000
         self.isGoal3 = False
         for i in range(self.sizePopulation):
-            self.population[i].calculateFitness2(table)
+            self.population[i].calculateFitness(table)
             self.fitnessPopulation = self.population[i].fitness
             self.sumFitnessPopulation += self.population[i].fitness
             self.maxFitnessPopulation = max(self.maxFitnessPopulation, self.population[i].fitness)
@@ -405,7 +413,7 @@ class Individ:
                 table.returnRobotsToStartPosition()
                 break
 
-    def calculateFitness2(self, table):
+    """def calculateFitness2(self, table):
         table.returnRobotsToStartPosition()
         self.fitness = 1000
         step = 0
@@ -420,14 +428,14 @@ class Individ:
             step+=1
             if table.isCollisionRobots3() or table.isObstacleCollision3():
                 self.fitness -= 1000
-                table.returnRobotsToStartPosition()
+                #table.returnRobotsToStartPosition()
                 break
             if table.isGoal3():
                 self.isGoal3 = True
                 self.fitness += 3000
                 self.prog = self.prog[:step]
                 table.returnRobotsToStartPosition()
-                break
+                break"""
 
 
         # if table.isGoal3: self.fitness += 300
@@ -477,17 +485,16 @@ def main():
     while genProg.numberPopulation < 100 and genProg.isGoal3 == False:
         genProg.sim(table)
 
-    print(genProg.maxFitnessPopulation)
+    """print(genProg.maxFitnessPopulation)
     for p in genProg.children:
-        print(p.prog)
-    print(genProg.population[0].prog)
-    print(genProg.isGoal3)
+        print(p.fitness, p.prog)
+    print(genProg.isGoal3)"""
 
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 sys.exit(0)
-            if event.type == pygame.KEYDOWN:
+            """if event.type == pygame.KEYDOWN:
                 if event.key == pygame.K_w:
                     table.movingRobots([Robot.Moving.UP])
                 if event.key == pygame.K_a:
@@ -495,7 +502,7 @@ def main():
                 if event.key == pygame.K_d:
                     table.movingRobots([Robot.Moving.RIGHT])
                 if event.key == pygame.K_s:
-                    table.movingRobots([Robot.Moving.DOWN])
+                    table.movingRobots([Robot.Moving.DOWN])"""
 
         screen.fill( (255,255,255) )
         x += 1
