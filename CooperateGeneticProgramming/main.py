@@ -4,6 +4,7 @@ from pygame.locals import *
 import math
 import enum
 import random
+import copy
 
 colors = {"black": (0,0,0), "white": (255, 255, 255), "red": (250, 0, 0),
               "green": (0, 250, 0), "blue": (0,0,250)}
@@ -70,6 +71,10 @@ class Table:
         colR = [(255, 0, 0), (0, 255, 0), (0, 0, 255)]
         colG = [(192, 0, 0), (0, 192, 0), (0, 0, 192)]
 
+        for o in self.obstacles:
+            row, column = o
+            pygame.draw.rect(screen, colors["black"], [column*kw, row*kh, kw, kh])
+
         for i in range(3):
             if self.goals[i] != None:
                 self.goals[i].draw(screen, colG[i])
@@ -78,9 +83,6 @@ class Table:
             if self.robots[j] != None:
                 self.robots[j].draw(screen, colR[j])
 
-        for o in self.obstacles:
-            row, column = o
-            pygame.draw.rect(screen, colors["black"], [column*kw, row*kh, kw, kh])
 
         # Рисуем линии, разделяющие строки таблицы
         for i in range(0, self.nRow+1):
@@ -161,6 +163,15 @@ class Table:
     def move3(self, com):
         for i in range(3):
             self.robots[i].move(com[i])
+            if self.isObstacleCollision(i):
+                if self.robots[i].state == Robot.States.MOVED_UP:
+                    self.robots[i].row += 1
+                elif self.robots[i].state == Robot.States.MOVED_DOWN:
+                    self.robots[i].row -= 1
+                elif self.robots[i].state == Robot.States.MOVED_LEFT:
+                    self.robots[i].column += 1
+                elif self.robots[i].state == Robot.States.MOVED_RIGHT:
+                    self.robots[i].column -= 1
 
     def isObstacleCollision(self, ind):
         r1, c1 = self.robots[ind].getPos()
@@ -195,7 +206,6 @@ class Goal:
     def __init__(self, row, column):
         self.row = row
         self.column = column
-        self.ind = 0
 
     def draw(self, screen, color=colors["red"]):
         x = self.column*50
@@ -249,19 +259,6 @@ class Robot:
             case Robot.Moving.STAY:
                 self.state = Robot.States.STAYED
 
-
-    """def sense(self, table):
-        for r in range(self.row - 1, self.row + 2):
-            for c in range(self.row - 1, self.row + 2):
-                if r == self.row and c == self.column:
-                    continue
-                else:
-                    if 0 <= r < table.nRow and 0 <= c < table.nColumn:
-                        self.sensors[r][c] = table.cells[r][c]
-                    else:
-                        self.sensors[r][c] = TypeCells.OBSTACLE"""
-
-
     def getPos(self):
         return (self.row, self.column)
 
@@ -270,10 +267,11 @@ class Robot:
 
 
 class GP:
-    def __init__(self, sizePopulation, maxSizeIndivid, chanceMutation = 0.2, chanceCrossover= 0.8):
+    def __init__(self, sizePopulation, minSizeIndivid, maxSizeIndivid, chanceMutation = 0.2, chanceCrossover= 0.8):
         self.numberPopulation = 0
         self.sizePopulation = sizePopulation
         self.maxSizeIndivid = maxSizeIndivid
+        self.minSizeIndivid = minSizeIndivid
         self.chanceMutation = chanceMutation
         self.chanceCrossover = chanceCrossover
         self.population = []
@@ -288,13 +286,49 @@ class GP:
         self.isGoal3 = False
         #self.maxSizePartCode = 5
 
-    def initial_population(self):
-        self.population = [Individ(self.maxSizeIndivid) for i in range(self.sizePopulation)]
+    def initial_population(self, sizePopulation, minSizeIndivid, maxSizeIndivid):
+        self.population = [Individ(maxSizeIndivid, minSizeIndivid) for i in range(self.sizePopulation)]
         for i in self.population:
-            i.createProgramm()
+            i.createProgramm(False)
         self.numberPopulation = 1
 
-    def crossover(self, individ1, individ2):
+    def initial_population2(self, sizePopulation, minSizeIndivid, maxSizeIndivid):
+        self.population = [Individ(maxSizeIndivid, minSizeIndivid) for i in range(self.sizePopulation)]
+        for i in self.population:
+            i.createProgramm2(minSizeIndivid)
+        self.numberPopulation = 1
+
+    def crossoverOnePoint(self, individ1, individ2):
+        point = random.randint(1, min(individ1.size, individ2.size)-1)
+        n1 = individ1.prog[:point] + individ2.prog[point:]
+        n2 = individ2.prog[:point] + individ1.prog[point:]
+        return (Individ(self.maxSizeIndivid, n1, len(n1)), Individ(self.maxSizeIndivid, n2, len(n2)))
+
+    def crossoverTwoPoint(self, individ1, individ2):
+        point1 = random.randint(1, min(individ1.size, individ2.size) - 1)
+        point2 = random.randint(1, min(individ1.size, individ2.size) - 1)
+        if point1 > point2:
+            point1, point2 = point2, point1
+        elif point1 == point2:
+            point2 = random.randint(point1, min(individ1.size, individ2.size) - 1)
+        n1 = individ1.prog[:point1] + individ2.prog[point1:point2] + individ1.prog[point2:]
+        n2 = individ2.prog[:point2] + individ1.prog[point1:point2] + individ2.prog[point2:]
+        return (Individ(self.maxSizeIndivid, n1, len(n1)), Individ(self.maxSizeIndivid, n2, len(n2)))
+
+    def crossoverTwoPointAndSize(self, individ1, individ2, sizePartCode=7):
+        sizePart = random.randint(1, sizePartCode)
+        p1left = random.randint(0, individ1.size - sizePart)
+
+        p2left = random.randint(0, individ2.size - sizePart)
+        p1right = p1left + sizePart
+        p2right = p2left + sizePart
+        n1 = individ1.prog[:p1left] + individ2.prog[p2left:p2right] + individ1.prog[p1right:]
+        n2 = individ2.prog[:p2left] + individ1.prog[p1left:p1right] + individ2.prog[p2right:]
+        minsize = self.minSizeIndivid
+        maxsize = self.minSizeIndivid
+        return (Individ(minsize, maxsize, n1, len(n1)), Individ(minsize, maxsize, n2, len(n2)))
+
+    def crossoverUniversal(self, individ1, individ2):
         l1 = random.randint(0, individ1.size-1)
         r1 = random.randint(l1+1, min(l1+5,individ1.size))
         l2 = random.randint(0, individ2.size-1)
@@ -309,7 +343,7 @@ class GP:
     def crossoverPopulation(self, population):
         lst = []
         for i in range(0, len(population), 2):
-            n1, n2 = self.crossover(population[i], population[i+1])
+            n1, n2 = self.crossoverTwoPointAndSize(population[i], population[i+1], 5)
             lst.append(n1)
             lst.append(n2)
         return lst
@@ -321,26 +355,65 @@ class GP:
               Robot.Moving.LEFT,
               Robot.Moving.DOWN,
               Robot.Moving.RIGHT]
-        Ncomand = random.randint(1, 5)
-        for i in range(Ncomand):
-            numberComand = random.randint(0, individ.size - 1)
-            numberRobot = random.randint(0, 2)
-            choiceComand = random.choice(cm)
-            individ.prog[numberComand][numberRobot] = choiceComand
+        numberComand = random.randint(0, individ.size - 1)
+        numberRobot = random.randint(0, 2)
+        choiceComand = random.choice(cm)
+        individ.prog[numberComand][numberRobot] = choiceComand
 
-    def mutationPopulation(self, population, propability=0.2):
+    def mutationReplace(self, individ):
+        cm = [Robot.Moving.STAY,
+              Robot.Moving.UP,
+              Robot.Moving.LEFT,
+              Robot.Moving.DOWN,
+              Robot.Moving.RIGHT]
+        numberComand = random.randint(0, individ.size - 1)
+        individ.prog[numberComand] = [random.choice(cm), random.choice(cm), random.choice(cm)]
+
+
+    def mutationInsert(self, individ):
+        if individ.size < self.maxSizeIndivid:
+            cm = [Robot.Moving.STAY,
+                  Robot.Moving.UP,
+                  Robot.Moving.LEFT,
+                  Robot.Moving.DOWN,
+                  Robot.Moving.RIGHT]
+            numberComand = random.randint(0, individ.size - 1)
+            individ.prog.insert(numberComand, [random.choice(cm), random.choice(cm), random.choice(cm)])
+            individ.size += 1
+
+    def mutationDelete(self, individ):
+        if individ.size > self.minSizeIndivid:
+            cm = [Robot.Moving.STAY,
+                  Robot.Moving.UP,
+                  Robot.Moving.LEFT,
+                  Robot.Moving.DOWN,
+                  Robot.Moving.RIGHT]
+            numberComand = random.randint(0, individ.size - 1)
+            individ.prog.pop(numberComand)
+            individ.size -= 1
+
+    def mutationPopulation(self, population, propability=0.2, chanceMC = 0.4, chanceMR = 0.3, chanceMI=0.2, chanceMD=0.1):
         for i in range(len(population)):
             if random.random() <= propability:
-                self.mutationComand(population[i])
+                for j in range(random.randint(1, 2)):
+                    chance = random.random()
+                    if chance < chanceMD:
+                        self.mutationDelete(population[i])
+                    elif chance < chanceMI + chanceMD:
+                        self.mutationInsert(population[i])
+                    elif chance < chanceMR + chanceMI + chanceMD:
+                        self.mutationReplace(population[i])
+                    else:
+                        self.mutationComand(population[i])
 
     def calculateFitnessPopulation(self, table):
         self.sumFitnessPopulation = 0
-        self.maxFitnessPopulation = 0
-        self.minFitnessPopulation = 10000
+        self.maxFitnessPopulation = -1
+        self.minFitnessPopulation = 1000000
         self.isGoal3 = False
         for i in range(self.sizePopulation):
             self.population[i].calculateFitness(table)
-            self.fitnessPopulation = self.population[i].fitness
+            # self.fitnessPopulation = self.population[i].fitness
             self.sumFitnessPopulation += self.population[i].fitness
             self.maxFitnessPopulation = max(self.maxFitnessPopulation, self.population[i].fitness)
             self.minFitnessPopulation = min(self.minFitnessPopulation, self.population[i].fitness)
@@ -348,12 +421,13 @@ class GP:
 
         self.meanFitnessPopulation = self.sumFitnessPopulation/self.sizePopulation
 
-    def chooseIndivids(self, population):
-        lst = random.sample(population, len(population))
+    def selectionTournament(self, population):
+        #lst = random.sample(population, len(population))
+        lst = sorted(population, key=lambda x: x.fitness)
         winners = []
         losers = []
         for i in range(0, len(lst), 2):
-            if lst[i].fitness > lst[i + 1].fitness:
+            if lst[i].fitness < lst[i + 1].fitness:
                 winners.append(lst[i])
                 losers.append(lst[i + 1])
             else:
@@ -362,83 +436,117 @@ class GP:
 
         return winners, losers
 
+    def selectionRang(self, population, numParents=2):
+        winners = []
+        losers = []
+        lst = sorted(population, key= lambda x: x.fitness)
+        rangs = [i*i for i in range(self.sizePopulation, 0,-1)]
+        sum_rangs = sum(rangs)
+        probe = [k / sum_rangs for k in lst]
+        spin = [sum(probe[:i]) for i in range(1, len(probe) + 1)]
+        chosed = [False for i in range(self.sizePopulation)]
+        for k in range(numParents):
+            arrow = random.random()
+            for i in range(len(spin)):
+                if arrow < spin[i]:
+                    winners.append(lst[i])
+                    break
+        return winners
+
     def sim(self, table):
         if self.numberPopulation == 0:
-            self.initial_population()
+            self.initial_population(self.sizePopulation, self.minSizeIndivid, self.maxSizeIndivid)
         self.calculateFitnessPopulation(table)
-        self.parents, self.children = self.chooseIndivids(self.population)
-        self.children = self.crossoverPopulation(self.parents)
-        self.mutationPopulation(self.children, propability=self.chanceMutation)
-        self.population = self.parents + self.children
-        self.numberPopulation += 1
+        if not self.isGoal3:
+            self.parents, self.children = self.selectionTournament(self.population)
+            self.children = self.crossoverPopulation(self.parents)
+            self.mutationPopulation(self.children, propability=self.chanceMutation)
+            self.population = self.parents + self.children
+            self.numberPopulation += 1
+
+    def sim2(self, table):
+        if self.numberPopulation == 0:
+            self.initial_population2(self.sizePopulation, self.minSizeIndivid, self.maxSizeIndivid)
+        self.calculateFitnessPopulation(table)
+        if not self.isGoal3:
+            self.parents = copy.copy(self.population[0])
+            self.children = copy.copy(self.parents)
+            probeInsert = 0.1
+            if random.random() < probeInsert and self.children.size < self.maxSizeIndivid:
+                self.children.appendRandomComand()
+            else:
+                self.mutationReplace(self.children)
+            self.children.calculateFitness(table)
+            if self.children.fitness < self.parents.fitness:
+                self.population[0]=copy.copy(self.children)
+            self.numberPopulation += 1
+
 
 class Individ:
-    def __init__(self, maxSize, code=None, size=0):
+    def __init__(self, maxSize, minSize=0, code=None, size=0):
         self.maxSize = maxSize
+        self.minSize = minSize
         self.prog = code
-        self.fitness = 1000
+        self.fitness = 100
         self.size = size
         self.isGoal3 = False
 
-    def createProgramm(self, fullSize = True):
+    def createProgramm(self, randomSize = False, size=None):
         cm = [Robot.Moving.STAY,
               Robot.Moving.UP,
               Robot.Moving.LEFT,
               Robot.Moving.DOWN,
               Robot.Moving.RIGHT]
-        if fullSize:
-            self.size = self.maxSize
+        if not randomSize and size != None:
+            self.size = min(size, self.maxSize)
         else:
-            self.size = random.randint(1, self.maxSize)
+            self.size = random.randint(self.minSize, self.maxSize)
         self.prog = []
         for i in range(self.size):
             self.prog.append([random.choice(cm), random.choice(cm), random.choice(cm)])
 
+    def createProgramm2(self, size, prog = None):
+        if prog is None:
+            self.prog = []
+            for i in range(size):
+                self.appendRandomComand()
+        else:
+            self.prog = prog
+            self.size = size
+
+    def appendRandomComand(self):
+        cm = [Robot.Moving.STAY,
+              Robot.Moving.UP,
+              Robot.Moving.LEFT,
+              Robot.Moving.DOWN,
+              Robot.Moving.RIGHT]
+        self.prog.append([random.choice(cm), random.choice(cm), random.choice(cm)])
+        self.size += 1
+
     def calculateFitness(self, table):
         table.returnRobotsToStartPosition()
-        self.fitness = 1000
-        k=0
+        self.fitness = 100
+        k= 0
         for p in self.prog:
+            k += 1
             table.move3(p)
-            self.fitness -= 1
-            k+=1
-            if table.isCollisionRobots3() or table.isObstacleCollision3():
-                self.fitness -= 100
-                table.returnRobotsToStartPosition()
-                break
-            if table.isGoal3():
-                self.isGoal3 = True
-                self.fitness += 600
-                self.prog = self.prog[:k]
-                table.returnRobotsToStartPosition()
-                break
+            self.fitness += 10
+            if table.isCollisionRobots3():
+                self.fitness += 30000
 
-    """def calculateFitness2(self, table):
-        table.returnRobotsToStartPosition()
-        self.fitness = 1000
-        step = 0
-
-        for p in self.prog:
-            table.move3(p)
-            self.fitness += 1
             for i in range(3):
-                self.fitness -= 2*distAbs(*table.robots[i].getPos(), *table.goals[i].getPos())
-                self.fitness += 10*distAbs(*table.robots[i].getPos(), *table.startPositionRobots[i])
+                if table.isGoal(i):
+                    self.fitness -= 3
 
-            step+=1
-            if table.isCollisionRobots3() or table.isObstacleCollision3():
-                self.fitness -= 1000
-                #table.returnRobotsToStartPosition()
-                break
             if table.isGoal3():
                 self.isGoal3 = True
-                self.fitness += 3000
-                self.prog = self.prog[:step]
-                table.returnRobotsToStartPosition()
-                break"""
+                self.fitness = 0
+                self.prog = self.prog[:k]
+                break
 
-
-        # if table.isGoal3: self.fitness += 300
+        for i in range(3):
+            self.fitness += 200*distAbs(*table.robots[i].getPos(),*table.goals[i].getPos())
+        table.returnRobotsToStartPosition()
 
     def messageComand(self):
         s = ""
@@ -458,51 +566,59 @@ def main():
     fps = 30
     table = Table(12,12,600,600)
 
-    robot1 = Robot(5, 9)
-    robot2 = Robot(1, 3)
-    robot3 = Robot(9, 2)
+    robot1 = Robot(1, 1)
+    robot2 = Robot(1, 10)
+    robot3 = Robot(10, 6)
     table.setRobot(robot1, *(robot1.getPos()), 0)
     table.setRobot(robot2, *(robot2.getPos()), 1)
     table.setRobot(robot3, *(robot3.getPos()), 2)
 
-    goal1 = Goal(1, 1)
-    goal2 = Goal(5, 8)
-    goal3 = Goal(1, 10)
+    goal1 = Goal(10, 10)
+    goal2 = Goal(10, 1)
+    goal3 = Goal(1, 5)
     table.setGoal(goal1, *goal1.getPos(),0)
     table.setGoal(goal2, *goal1.getPos(), 1)
     table.setGoal(goal3, *goal1.getPos(), 2)
 
+    # Препятствия вокруг поля
     table.setBlockObsctacles(0, 0, 1, 12)
     table.setBlockObsctacles(11, 0, 1, 12)
     table.setBlockObsctacles(1, 0, 10, 1)
     table.setBlockObsctacles(1, 11, 10, 1)
-    table.setBlockObsctacles(2, 1, 1, 5)
-    table.setBlockObsctacles(2, 7, 1, 4)
+
+    # Остальные препятствия
+    table.setBlockObsctacles(2, 1, 1, 4)
+    table.setBlockObsctacles(2, 6, 1, 5)
+    table.setBlockObsctacles(9, 1, 1, 5)
+    table.setBlockObsctacles(9, 7, 1, 4)
     table.setBlockObsctacles(3, 7, 4, 1)
     table.setBlockObsctacles(6, 8, 1, 2)
+    table.setBlockObsctacles(5, 4, 4, 1)
+    table.setBlockObsctacles(5, 2, 1, 2)
 
-    genProg = GP(52, 20, chanceMutation=1.0)
-    while genProg.numberPopulation < 100 and genProg.isGoal3 == False:
-        genProg.sim(table)
 
-    """print(genProg.maxFitnessPopulation)
-    for p in genProg.children:
-        print(p.fitness, p.prog)
-    print(genProg.isGoal3)"""
+    genProg = GP(1, 1, 20, chanceMutation=1.0)
+    while genProg.numberPopulation < 1000 and genProg.isGoal3 == False:
+        genProg.sim2(table)
+
+    print(genProg.population[0].fitness)
+    lst = genProg.population[0].prog
+    k = 0
+    for el in lst:
+        print(el)
 
     while True:
         for event in pygame.event.get():
             if event.type == pygame.QUIT:
                 sys.exit(0)
-            """if event.type == pygame.KEYDOWN:
-                if event.key == pygame.K_w:
-                    table.movingRobots([Robot.Moving.UP])
-                if event.key == pygame.K_a:
-                    table.movingRobots([Robot.Moving.LEFT])
-                if event.key == pygame.K_d:
-                    table.movingRobots([Robot.Moving.RIGHT])
-                if event.key == pygame.K_s:
-                    table.movingRobots([Robot.Moving.DOWN])"""
+            if event.type == pygame.KEYDOWN:
+                if event.key == pygame.K_r:
+                    table.returnRobotsToStartPosition()
+                    k = 0
+                if event.key == pygame.K_p:
+                    if k < len(lst):
+                        table.move3(lst[k])
+                        k += 1
 
         screen.fill( (255,255,255) )
         x += 1
