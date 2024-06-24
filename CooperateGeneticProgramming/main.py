@@ -279,10 +279,10 @@ class GP:
         self.children = []
         self.otherHalfPopulation = []
         self.fitnessPopulation = []
-        self.sumFitnessPopulation = 0
-        self.meanFitnessPopulation = 0
-        self.maxFitnessPopulation = 0
-        self.minFitnessPopulation = 0
+        self.sumFitnessPopulation = []
+        self.meanFitnessPopulation = []
+        self.maxFitnessPopulation = []
+        self.minFitnessPopulation = []
         self.isGoal3 = False
         #self.maxSizePartCode = 5
 
@@ -407,19 +407,23 @@ class GP:
                         self.mutationComand(population[i])
 
     def calculateFitnessPopulation(self, table):
-        self.sumFitnessPopulation = 0
-        self.maxFitnessPopulation = -1
-        self.minFitnessPopulation = 1000000
+        sumFitnessPopulation = 0
+        maxFitnessPopulation = -1
+        minFitnessPopulation = 1000000
         self.isGoal3 = False
         for i in range(self.sizePopulation):
             self.population[i].calculateFitness(table)
             # self.fitnessPopulation = self.population[i].fitness
-            self.sumFitnessPopulation += self.population[i].fitness
-            self.maxFitnessPopulation = max(self.maxFitnessPopulation, self.population[i].fitness)
-            self.minFitnessPopulation = min(self.minFitnessPopulation, self.population[i].fitness)
+            sumFitnessPopulation += self.population[i].fitness
+            maxFitnessPopulation = max(maxFitnessPopulation, self.population[i].fitness)
+            minFitnessPopulation = min(minFitnessPopulation, self.population[i].fitness)
             self.isGoal3 = self.isGoal3 or self.population[i].isGoal3
 
-        self.meanFitnessPopulation = self.sumFitnessPopulation/self.sizePopulation
+        meanFitnessPopulation = sumFitnessPopulation/self.sizePopulation
+        self.maxFitnessPopulation.append(maxFitnessPopulation)
+        self.minFitnessPopulation.append(minFitnessPopulation)
+        self.sumFitnessPopulation.append(sumFitnessPopulation)
+        self.meanFitnessPopulation.append(meanFitnessPopulation)
 
     def selectionTournament(self, population):
         #lst = random.sample(population, len(population))
@@ -510,6 +514,7 @@ class Individ:
             self.prog = []
             for i in range(size):
                 self.appendRandomComand()
+                self.size += 1
         else:
             self.prog = prog
             self.size = size
@@ -602,6 +607,7 @@ def main():
         genProg.sim2(table)
 
     print(genProg.population[0].fitness)
+    print(genProg.population[0].size, len(genProg.population[0].prog))
     lst = genProg.population[0].prog
     k = 0
     for el in lst:
